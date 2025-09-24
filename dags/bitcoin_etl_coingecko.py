@@ -84,7 +84,7 @@ def fetch_bitcoin_history_from_coingecko():
     schedule="0 0 * * *",  # diário à 00:00 UTC
     start_date=pendulum.datetime(2025, 9, 17, tz="UTC"),
     catchup=True,
-    concurrency = 10, #limita esta dag a 10 10 tarefas simultâneas
+    # concurrency = 10, #limita esta dag a 10 10 tarefas simultâneas
     max_active_run = 3,  #limita esta Dag a 3 execuções ativas simultâneas
     owner_links={
         "Alex Lopes": "mailto:alexlopespereira@gmail.com",
