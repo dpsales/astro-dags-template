@@ -12,11 +12,11 @@ import pandas as pd
 from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
 
 # ====== CONFIG ======
-GCP_PROJECT  = "aulacienciadados"      # e.g., "my-gcp-project"
-BQ_DATASET   = "dadosaula10"                    # e.g., "crypto"
-BQ_TABLE     = "bitcoin_history_hourly"    # e.g., "bitcoin_history_hourly"
-BQ_LOCATION  = "US"                        # dataset location: "US" or "EU"
-GCP_CONN_ID  = "google_cloud_default"      # Airflow connection with a SA that can write to BQ
+GCP_PROJECT  = "aulacienciadados"       # e.g., "my-gcp-project"
+BQ_DATASET   = "dadosaula10"            # e.g., "crypto"
+BQ_TABLE     = "bitcoin_history_hourly" # e.g., "bitcoin_history_hourly"
+BQ_LOCATION  = "US"                     # dataset location: "US" or "EU"
+GCP_CONN_ID  = "google_cloud_default"   # Airflow connection with a SA that can write to BQ
 # ====================
 
 DEFAULT_ARGS = {
@@ -77,10 +77,10 @@ def fetch_and_to_gbq():
 
     # Optional explicit schema (helps first-time table creation)
     table_schema = [
-        {"name": "time",            "type": "TIMESTAMP"},
-        {"name": "price_usd",       "type": "FLOAT"},
-        {"name": "market_cap_usd",  "type": "FLOAT"},
-        {"name": "volume_usd",      "type": "FLOAT"},
+        {"name": "time",             "type": "TIMESTAMP"},
+        {"name": "price_usd",        "type": "FLOAT"},
+        {"name": "market_cap_usd",   "type": "FLOAT"},
+        {"name": "volume_usd",       "type": "FLOAT"},
     ]
 
     # Ensure 'time' is a column (not index)
@@ -92,9 +92,9 @@ def fetch_and_to_gbq():
     df.to_gbq(
         destination_table=destination_table,
         project_id=GCP_PROJECT,
-        if_exists="append",          # or "replace" / "fail"
+        if_exists="append",           # or "replace" / "fail"
         credentials=credentials,
-        table_schema=table_schema,   # used on first create
+        table_schema=table_schema,    # used on first create
         location=BQ_LOCATION,
         progress_bar=False,
     )
@@ -108,7 +108,7 @@ def fetch_and_to_gbq():
     catchup=True,
     concurrency = 1,
     # FIX 1: Changed 'max_active_run' to 'max_active_runs' (plural)
-    max_active_runs = 1,
+    max_active_runs = 1, 
     owner_links={
         "Alex Lopes": "mailto:alexlopespereira@gmail.com",
         "Open in Cloud IDE": "https://cloud.astronomer.io/cm3webulw15k701npm2uhu77t/cloud-ide/cm42rbvn10lqk01nlco70l0b8/cm44gkosq0tof01mxajutk86g",
@@ -118,4 +118,6 @@ def fetch_and_to_gbq():
 def bitcoin_etl_bigquery():
     fetch_and_to_gbq()
 
-dag = bitcoin_etl_bigquery()
+# FIX 2: Removed the redundant instantiation line: dag = bitcoin_etl_bigquery()
+# The function call 'bitcoin_etl_bigquery()' at the end of the file is enough
+bitcoin_etl_bigquery()
