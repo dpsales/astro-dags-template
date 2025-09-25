@@ -85,7 +85,7 @@ def fetch_bitcoin_history_from_coingecko():
     start_date=pendulum.datetime(2025, 9, 17, tz="UTC"),
     catchup=True,
     # concurrency = 10, #limita esta dag a 10 10 tarefas simultâneas
-    max_active_run = 3,  #limita esta Dag a 3 execuções ativas simultâneas
+    # max_active_run = 3,  #limita esta Dag a 3 execuções ativas simultâneas
     owner_links={
         "Alex Lopes": "mailto:alexlopespereira@gmail.com",
         "Open in Cloud IDE": "https://cloud.astronomer.io/cm3webulw15k701npm2uhu77t/cloud-ide/cm42rbvn10lqk01nlco70l0b8/cm44gkosq0tof01mxajutk86g",
