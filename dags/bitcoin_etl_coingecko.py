@@ -1,100 +1,88 @@
-# dags/bitcoin_etl_coingecko.py
+# bitcoin_daily_etl.py
+
+
+
 from __future__ import annotations
 
-from airflow.decorators import dag, task
-from airflow.operators.python import get_current_context
-from datetime import timedelta
 import pendulum
 import requests
 import pandas as pd
+from datetime import timedelta
 
-
-DEFAULT_ARGS = {
-    "email_on_failure": True,
-    "owner": "Alex Lopes,Open in Cloud IDE",
-}
-
-
-@task
-def fetch_bitcoin_history_from_coingecko():
-    """
-    Coleta dados horários do Bitcoin na janela "ontem"
-    usando CoinGecko /coins/bitcoin/market_chart/range.
-    """
-    ctx = get_current_context()
-
-    # Janela "ontem": [data_interval_start - 1 dia, data_interval_start)
-    end_time = ctx["data_interval_start"]
-    start_time = end_time - timedelta(days=1)
-
-    print(f"[UTC] janela-alvo: {start_time} -> {end_time}")
-
-    # CoinGecko exige epoch em segundos (não ms)
-    start_s = int(start_time.timestamp())
-    end_s = int(end_time.timestamp())
-
-    url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range"
-    params = {
-        "vs_currency": "usd",
-        "from": start_s,
-        "to": end_s,
-    }
-
-    # Observação: CoinGecko pode aplicar rate limit (HTTP 429).
-    # O retry geral é tratado pelo Airflow (default_args['retries']).
-    r = requests.get(url, params=params, timeout=30)
-    r.raise_for_status()
-    payload = r.json()
-
-    # payload contém listas de pares [timestamp_ms, valor]
-    prices = payload.get("prices", [])
-    caps = payload.get("market_caps", [])
-    vols = payload.get("total_volumes", [])
-
-    if not prices:
-        print("Sem dados retornados pela API para a janela especificada.")
-        return
-
-    # Constrói DataFrames individuais
-    df_p = pd.DataFrame(prices, columns=["time_ms", "price_usd"])
-    df_c = pd.DataFrame(caps, columns=["time_ms", "market_cap_usd"])
-    df_v = pd.DataFrame(vols, columns=["time_ms", "volume_usd"])
-
-    # Merge por timestamp (ms)
-    df = df_p.merge(df_c, on="time_ms", how="outer").merge(df_v, on="time_ms", how="outer")
-
-    # Converte timestamp e organiza índice
-    df["time"] = pd.to_datetime(df["time_ms"], unit="ms", utc=True)
-    df.drop(columns=["time_ms"], inplace=True)
-    df.set_index("time", inplace=True)
-    df.sort_index(inplace=True)
-
-    # Preview no log
-    print(df.head(10).to_string())
-
-    # TODO: salvar no warehouse, ex. via PostgresHook / to_sql
-    from airflow.providers.postgres.hooks.postgres import PostgresHook
-    hook = PostgresHook(postgres_conn_id="postgres")
-    engine = hook.get_sqlalchemy_engine()
-    df.to_sql("bitcoin_history_dpsales", con=engine, if_exists="append", index=True)
+from airflow.decorators import dag, task
+from airflow.providers.postgres.hooks.postgres import PostgresHook
 
 
 @dag(
-    default_args=DEFAULT_ARGS,
-    schedule="0 0 * * *",  # diário à 00:00 UTC
-    start_date=pendulum.datetime(2025, 9, 17, tz="UTC"),
-    catchup=True,
-    # concurrency = 10, #limita esta dag a 10 10 tarefas simultâneas
-    max_active_runs = 1,  #limita esta Dag a 3 execuções ativas simultâneas
-    owner_links={
-        "Alex Lopes": "mailto:alexlopespereira@gmail.com",
-        "Open in Cloud IDE": "https://cloud.astronomer.io/cm3webulw15k701npm2uhu77t/cloud-ide/cm42rbvn10lqk01nlco70l0b8/cm44gkosq0tof01mxajutk86g",
-    },
-    tags=["bitcoin", "etl", "coingecko"],
+    dag_id="bitcoin_daily_etl",
+    schedule="0 0 * * *",  # Executa diariamente à meia-noite UTC
+    start_date=pendulum.datetime(2025, 9, 1, tz="UTC"),
+    catchup=False,
+    tags=["bitcoin", "etl"],
 )
-def bitcoin_etl_coingecko():
-    fetch_bitcoin_history_from_coingecko()
+def bitcoin_etl_dag():
+    """
+    ### Pipeline de ETL para Dados Históricos do Bitcoin
+    Este DAG extrai dados diários da API da CoinGecko, os transforma
+    e carrega em um banco de dados PostgreSQL.
+    """
 
+    @task()
+    def extract_bitcoin_data():
+        """
+        Extrai os dados de preço, market cap e volume do Bitcoin do dia anterior.
+        """
+        # A janela de execução é gerenciada pelo Airflow
+        end_time = pendulum.now("UTC")
+        start_time = end_time - timedelta(days=1)
 
-# Airflow descobre qualquer variável global que referencie um DAG
-dag = bitcoin_etl_coingecko()
+        start_s = int(start_time.timestamp())
+        end_s = int(end_time.timestamp())
+
+        url = "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart/range"
+        params = {
+            "vs_currency": "usd",
+            "from": start_s,
+            "to": end_s,
+        }
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json()
+
+    @task()
+    def transform_data(raw_data: dict):
+        """
+        Transforma os dados JSON em um DataFrame do Pandas.
+        """
+        df_p = pd.DataFrame(raw_data["prices"], columns=["time_ms", "price_usd"])
+        df_c = pd.DataFrame(raw_data["market_caps"], columns=["time_ms", "market_cap_usd"])
+        df_v = pd.DataFrame(raw_data["total_volumes"], columns=["time_ms", "volume_usd"])
+
+        df = df_p.merge(df_c, on="time_ms").merge(df_v, on="time_ms")
+        df["time"] = pd.to_datetime(df["time_ms"], unit="ms", utc=True)
+        df.drop(columns=["time_ms"], inplace=True)
+        df.set_index("time", inplace=True)
+        return df.to_json() # Passa o dataframe como JSON para a próxima tarefa
+
+    @task()
+    def load_data_to_postgres(transformed_data_json: str):
+        """
+        Carrega o DataFrame transformado na tabela 'bitcoin_history' do PostgreSQL.
+        """
+        df = pd.read_json(transformed_data_json)
+        df.index = pd.to_datetime(df.index, utc=True)
+
+        hook = PostgresHook(postgres_conn_id="postgres_default")
+        engine = hook.get_sqlalchemy_engine()
+        df.to_sql("bitcoin_history", con=engine, if_exists="append", index=True)
+
+    # Define a ordem de execução
+    raw_data = extract_bitcoin_data()
+    transformed_data = transform_data(raw_data)
+    load_data_to_postgres(transformed_data)
+
+# Instancia o DAG
+dag = bitcoin_etl_dag()
+
+if __name__ == "__main__":
+    dag.test()  # Permite testar o DAG localmente
